@@ -181,15 +181,17 @@ with st.sidebar:
 
 st.title("Option strategies and Greeks dashboard")
 
-col_selection, col_vide = st.columns([1, 3])
+col_selection, col_empty = st.columns([1,3])
 with col_selection:
-    premium_choice = st.selectbox("Display Payoff with Premium?", ("Yes", "No"), index=0)
+    premium_choice = st.selectbox("Display Payoff with Premium?", ("Yes", "No"), index=1)
+
+st.header("Payoff")
 
 premium=0
 for leg in st.session_state.legs:
     d1=(np.log(S/leg['strike'])+((R/100-D/100+((leg['vol']/100)**2/2))*leg['maturity']))/((leg['vol']/100)*np.sqrt(leg['maturity']))
     d2=d1-((leg['vol']/100)*np.sqrt(leg['maturity']))
-    Call=S*np.exp(-D/100*leg['maturity'])*norm.cdf(d1)-leg['strike']*np.exp(-R/100*leg('maturity'))*norm.cdf(d2)
+    Call=S*np.exp(-D/100*leg['maturity'])*norm.cdf(d1)-leg['strike']*np.exp(-R/100*leg['maturity'])*norm.cdf(d2)
     Put=leg['strike']*np.exp(-R/100*leg['maturity'])*norm.cdf(-d2)-S*np.exp(-D/100*leg['maturity'])*norm.cdf(-d1)
 
     if leg['side']=='Long':
@@ -204,6 +206,7 @@ for leg in st.session_state.legs:
         if leg['type']=="Put":
             premium-=Put
 
+#payoff
 payoff = pd.DataFrame()
 payoff['spot']=np.linspace(0,200,200)
 
@@ -223,7 +226,156 @@ payoff["Total Payoff"] = payoff[cols_to_sum].sum(axis=1)
 if premium_choice=='Yes':
     payoff["P&L Net"] = payoff["Total Payoff"] - premium
 
+chart_data = payoff.set_index('spot')
+if premium_choice == 'Yes':
+    col_show = "P&L Net" 
+else:
+    col_show = "Total Payoff"
+st.line_chart(chart_data[col_show])
 
+#delta
+delta = pd.DataFrame()
+delta['spot']=np.linspace(0,200,200)
 
-        
+for i, leg in enumerate(st.session_state.legs):
+    d1=(np.log(delta['spot']/leg['strike'])+((R/100-D/100+((leg['vol']/100)**2/2))*leg['maturity']))/((leg['vol']/100)*np.sqrt(leg['maturity']))
+    if leg['type']=="Call":
+        intrinsic=np.exp(-D*leg['maturity'])*norm.cdf(d1)
+    if leg['type']=="Put":
+        intrinsic=np.exp(-D*leg['maturity'])*norm.cdf(-d1)
+
+    direction=1 if leg['side']=='Long' else -1
+
+    delta[f'leg{i+1}']=intrinsic*direction*leg['quantity']
+
+cols_to_sum = [c for c in delta.columns if c != 'spot']
+delta["Total Delta"] = delta[cols_to_sum].sum(axis=1)
+chart_data = delta.set_index('spot')
+
+c1, c2 = st.columns(2)
+
+with c1:
+    st.header("Delta")
+    st.line_chart(chart_data["Total Delta"])
+
+#gamma
+gamma = pd.DataFrame()
+gamma['spot']=np.linspace(0,200,200)
+
+for i, leg in enumerate(st.session_state.legs):
+    d1=(np.log(gamma['spot']/leg['strike'])+((R/100-D/100+((leg['vol']/100)**2/2))*leg['maturity']))/((leg['vol']/100)*np.sqrt(leg['maturity']))
     
+    intrinsic=(np.exp(-D*leg['maturity'])*norm.pdf(d1))/(gamma['spot']*leg['vol']*np.sqrt(leg['maturity']))
+
+    direction=1 if leg['side']=='Long' else -1
+
+    gamma[f'leg{i+1}']=intrinsic*direction*leg['quantity']
+
+cols_to_sum = [c for c in gamma.columns if c != 'spot']
+gamma["Total Gamma"] = gamma[cols_to_sum].sum(axis=1)
+chart_data = gamma.set_index('spot')
+
+with c2:
+    st.header("Gamma")
+    st.line_chart(chart_data["Total Gamma"])
+
+#vega
+vega = pd.DataFrame()
+vega['spot']=np.linspace(0,200,200)
+
+for i, leg in enumerate(st.session_state.legs):
+    d1=(np.log(vega['spot']/leg['strike'])+((R/100-D/100+((leg['vol']/100)**2/2))*leg['maturity']))/((leg['vol']/100)*np.sqrt(leg['maturity']))
+    
+    intrinsic=vega['spot']*np.exp(-D*leg['maturity'])*norm.pdf(d1)*np.sqrt(leg['maturity'])
+
+    direction=1 if leg['side']=='Long' else -1
+
+    vega[f'leg{i+1}']=intrinsic*direction*leg['quantity']
+
+cols_to_sum = [c for c in vega.columns if c != 'spot']
+vega["Total Vega"] = vega[cols_to_sum].sum(axis=1)/100
+chart_data = vega.set_index('spot')
+
+c3, c4 = st.columns(2)
+
+with c3:
+    st.header("Vega")
+    st.line_chart(chart_data["Total Vega"])
+
+#theta
+theta = pd.DataFrame()
+theta['spot']=np.linspace(0,200,200)
+
+for i, leg in enumerate(st.session_state.legs):
+    d1=(np.log(theta['spot']/leg['strike'])+((R/100-D/100+((leg['vol']/100)**2/2))*leg['maturity']))/((leg['vol']/100)*np.sqrt(leg['maturity']))
+    d2=d1-((leg['vol']/100)*np.sqrt(leg['maturity']))
+    A=(-(theta['spot']*np.exp(-D*leg['maturity'])*norm.pdf(d1)*leg['vol']))/(2*np.sqrt(leg['maturity']))
+
+    if leg['type']=="Call":
+        intrinsic=A-R*leg['strike']*np.exp(-R*leg['maturity'])*norm.cdf(d2)+D*theta['spot']*np.exp(-D*leg['maturity'])*norm.cdf(d1)
+    if leg['type']=="Put":
+        intrinsic=A+R*leg['strike']*np.exp(-R*leg['maturity'])*norm.cdf(-d2)-D*theta['spot']*np.exp(-D*leg['maturity'])*norm.cdf(-d1)
+
+    direction=1 if leg['side']=='Long' else -1
+
+    theta[f'leg{i+1}']=intrinsic*direction*leg['quantity']
+
+cols_to_sum = [c for c in theta.columns if c != 'spot']
+theta["Total Theta"] = theta[cols_to_sum].sum(axis=1)/365
+chart_data = theta.set_index('spot')
+
+with c4:
+    st.header("Theta")
+    st.line_chart(chart_data["Total Theta"])
+
+#rho
+rho = pd.DataFrame()
+rho['spot']=np.linspace(0,200,200)
+
+for i, leg in enumerate(st.session_state.legs):
+    d1=(np.log(rho['spot']/leg['strike'])+((R/100-D/100+((leg['vol']/100)**2/2))*leg['maturity']))/((leg['vol']/100)*np.sqrt(leg['maturity']))
+    d2=d1-((leg['vol']/100)*np.sqrt(leg['maturity']))
+
+    if leg['type']=="Call":
+        intrinsic=leg['strike']*leg['maturity']*np.exp(-R*leg['maturity'])*norm.cdf(d2)
+    if leg['type']=="Put":
+        intrinsic=-leg['strike']*leg['maturity']*np.exp(-R*leg['maturity'])*norm.cdf(-d2)
+
+    direction=1 if leg['side']=='Long' else -1
+
+    rho[f'leg{i+1}']=intrinsic*direction*leg['quantity']
+
+cols_to_sum = [c for c in rho.columns if c != 'spot']
+rho["Total Rho"] = rho[cols_to_sum].sum(axis=1)/100
+chart_data = rho.set_index('spot')
+
+c5,c6=st.columns(2)
+
+with c5:
+    st.header("Rho")
+    st.line_chart(chart_data["Total Rho"])
+
+#phi
+phi = pd.DataFrame()
+phi['spot']=np.linspace(0,200,200)
+
+for i, leg in enumerate(st.session_state.legs):
+    d1=(np.log(phi['spot']/leg['strike'])+((R/100-D/100+((leg['vol']/100)**2/2))*leg['maturity']))/((leg['vol']/100)*np.sqrt(leg['maturity']))
+    d2=d1-((leg['vol']/100)*np.sqrt(leg['maturity']))
+
+    if leg['type']=="Call":
+        intrinsic=-leg['maturity']*phi['spot']*np.exp(-D*leg['maturity'])*norm.cdf(d1)
+    if leg['type']=="Put":
+        intrinsic=leg['maturity']*phi['spot']*np.exp(-D*leg['maturity'])*norm.cdf(-d1)
+
+    direction=1 if leg['side']=='Long' else -1
+
+    phi[f'leg{i+1}']=intrinsic*direction*leg['quantity']
+
+cols_to_sum = [c for c in phi.columns if c != 'spot']
+phi["Total Phi"] = phi[cols_to_sum].sum(axis=1)/100
+chart_data = phi.set_index('spot')
+
+with c6:
+    st.header("Phi")
+    st.line_chart(chart_data["Total Phi"])
